@@ -80,66 +80,90 @@
 //     console.log(`Server running on port ${PORT}`);
 // });
 
+//===============prevese code =
+
+// const express = require('express');
+// const cors = require('cors');
+// const jwt = require('jsonwebtoken');
+
+// const app = express();
+
+// app.use(cors());
+// app.use(express.json());
+
+// app.get('/health', (req, res) => {
+//     res.json({ status: 'ok' });
+// });
+
+// // Secret key
+// const SECRET_KEY = "your_secret_key";
+
+// // Temporary storage
+// let transactions = [];
+
+// // ================= TEST ROUTE =================
+// app.get('/', (req, res) => {
+//     res.send('Backend is running');
+// });
+
+// //============liking and mounting======
+// const authRoutes = require('./routes/auth');
+// const transactionRoutes = require('./routes/transactions');
+// const budgetRoutes = require('./routes/budgets');
+// const goalRoutes = require('./routes/goals');
+// const analyticsRoutes = require('./routes/analytics');
+
+// app.use('/api/auth', authRoutes);
+// app.use('/api/transactions', transactionRoutes);
+// app.use('/api/budget', budgetRoutes);
+// app.use('/api/goals', goalRoutes);
+// app.use('/api/analytics', analyticsRoutes);
+
+
+// // ================= SERVER =================
+// const PORT = process.env.PORT || 3000;
+
+// app.listen(PORT, () => {
+//     console.log(`Server running on port ${PORT}`);
+// });
+
 const express = require('express');
+const cors = require('cors');
 const jwt = require('jsonwebtoken');
 
 const app = express();
 
-// Middleware to parse JSON
+app.use(cors());
 app.use(express.json());
 
-// Secret key
-const SECRET_KEY = "your_secret_key";
+// ================= HEALTH CHECK =================
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok' });
+});
 
-// Temporary storage
-let transactions = [];
+// ================= SECRET KEY =================
+const SECRET_KEY = process.env.JWT_SECRET || "your_secret_key";
 
 // ================= TEST ROUTE =================
 app.get('/', (req, res) => {
     res.send('Backend is running');
 });
 
-// ================= REGISTER ROUTE =================
-app.post('/api/auth/register', (req, res) => {
+// ================= ROUTES =================
+const authRoutes = require('./routes/auth');
+const transactionRoutes = require('./routes/transactions');
+const budgetRoutes = require('./routes/budgets');
+const goalRoutes = require('./routes/goals');
+const analyticsRoutes = require('./routes/analytics');
 
-    const { full_name, email, password } = req.body;
-
-    // Normally save user in DB here
-
-    const payload = { full_name, email };
-
-    const token = jwt.sign(payload, SECRET_KEY, {
-        expiresIn: '1h'
-    });
-
-    res.json({
-        message: 'User registered successfully',
-        token
-    });
-});
-
-// ================= ADD TRANSACTION =================
-app.post('/api/transactions', (req, res) => {
-
-    const transaction = req.body;
-
-    transactions.push(transaction);
-
-    res.status(201).json({
-        message: 'Transaction added successfully',
-        data: transaction
-    });
-});
-
-// ================= GET TRANSACTIONS =================
-app.get('/api/transactions', (req, res) => {
-
-    res.json(transactions);
-
-});
+app.use('/api/auth', authRoutes);
+app.use('/api/transactions', transactionRoutes);
+app.use('/api/budget', budgetRoutes);
+app.use('/api/goals', goalRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // ================= SERVER =================
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
