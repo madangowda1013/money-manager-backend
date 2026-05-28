@@ -77,4 +77,68 @@ router.post('/', auth, async (req, res) => {
   }
 });
 
+router.put('/:id', auth, async (req, res) => {
+  const type = String(req.body.type || '').toLowerCase();
+  const amount = Number(req.body.amount);
+  const category = req.body.category;
+  const description = req.body.description || null;
+  const transactionDate = req.body.date || req.body.transaction_date || new Date().toISOString().slice(0, 10);
+
+  if (!['income', 'expense'].includes(type)) {
+    return res.status(400).json({ message: 'type must be income or expense' });
+  }
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return res.status(400).json({ message: 'amount must be a positive number' });
+  }
+
+  if (!category) {
+    return res.status(400).json({ message: 'category is required' });
+  }
+
+  try {
+    await ensureTransactionsTable();
+
+    const result = await pool.query(
+      `UPDATE transactions
+       SET type = $1, amount = $2, category = $3, description = $4, transaction_date = $5
+       WHERE id = $6 AND user_id = $7
+       RETURNING id, type, amount, category, description, transaction_date, created_at`,
+      [type, amount, category, description, transactionDate, req.params.id, req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Transaction not found' });
+    }
+
+    return res.json({
+      message: 'Transaction updated',
+      transaction: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Update transaction error:', error);
+    return res.status(500).json({ message: 'Unable to update transaction' });
+  }
+});
+
+router.delete('/:id', auth, async (req, res) => {
+  try {
+    await ensureTransactionsTable();
+
+    const result = await pool.query(
+      'DELETE FROM transactions WHERE id = $1 AND user_id = $2 RETURNING id',
+      [req.params.id, req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Transaction not found' });
+    }
+
+    return res.json({ message: 'Transaction deleted' });
+  } catch (error) {
+    console.error('Delete transaction error:', error);
+    return res.status(500).json({ message: 'Unable to delete transaction' });
+  }
+});
+
 module.exports = router;
