@@ -183,8 +183,12 @@ app.use('/api/auth', authRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/budget', budgetRoutes);
 app.use('/api/budgets', budgetRoutes);
+app.use('/api/goal', goalRoutes);
 app.use('/api/goals', goalRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.get('/api/summary', analyticsRoutes.summary);
+app.get('/api/expenses-by-category', analyticsRoutes.expensesByCategory);
+app.get('/api/monthly-summary', analyticsRoutes.monthlySummary);
 
 // ================= SERVER =================
 const PORT = process.env.PORT || 3000;
