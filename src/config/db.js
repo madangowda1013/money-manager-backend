@@ -1,11 +1,12 @@
 const { Pool } = require('pg');
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
+
+const databaseUrl = process.env.DATABASE_URL;
+const isLocalDatabase = /localhost|127\.0\.0\.1/i.test(databaseUrl || '');
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false  // required for Supabase
-  }
+  connectionString: databaseUrl,
+  ssl: isLocalDatabase ? false : { rejectUnauthorized: false }
 });
 
 pool.on('connect', () => console.log('Database connected successfully'));
