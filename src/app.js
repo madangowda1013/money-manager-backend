@@ -156,6 +156,17 @@ app.get('/health', (req, res) => {
     res.json({ status: 'ok' });
 });
 
+app.get('/health/db', async (req, res) => {
+    try {
+        const pool = require('./config/db');
+        await pool.query('SELECT 1');
+        res.json({ status: 'ok', database: 'connected' });
+    } catch (error) {
+        console.error('Database health check error:', error);
+        res.status(500).json({ status: 'error', database: 'unreachable' });
+    }
+});
+
 // ================= TEST ROUTE =================
 app.get('/', (req, res) => {
     res.send('Backend is running');
