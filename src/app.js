@@ -127,14 +127,26 @@
 //     console.log(`Server running on port ${PORT}`);
 // });
 
+require('dotenv').config({ quiet: true });
+
 const express = require('express');
 const cors = require('cors');
-const jwt = require('jsonwebtoken');
 
 const app = express();
 
+const allowedOrigins = (process.env.FRONTEND_URL || '')
+    .split(',')
+    .map((origin) => origin.trim().replace(/\/$/, ''))
+    .filter(Boolean);
+
 app.use(cors({
-    origin: process.env.FRONTEND_URL,
+    origin(origin, callback) {
+        if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin.replace(/\/$/, ''))) {
+            return callback(null, true);
+        }
+
+        return callback(new Error('Not allowed by CORS'));
+    },
     credentials: true
 }));
 app.use(express.json());
@@ -143,9 +155,6 @@ app.use(express.json());
 app.get('/health', (req, res) => {
     res.json({ status: 'ok' });
 });
-
-// ================= SECRET KEY =================
-const SECRET_KEY = process.env.JWT_SECRET || "your_secret_key";
 
 // ================= TEST ROUTE =================
 app.get('/', (req, res) => {
@@ -170,5 +179,5 @@ const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
-    console.log('FRONTEND_URL =', process.env.FRONTEND_URL || '(not set)');
+    console.log('FRONTEND_URL =', allowedOrigins.join(', ') || '(all origins allowed)');
 });
