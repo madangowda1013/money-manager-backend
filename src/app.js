@@ -182,6 +182,7 @@ const analyticsRoutes = require('./routes/analytics');
 app.use('/api/auth', authRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/budget', budgetRoutes);
+app.use('/api/budgets', budgetRoutes);
 app.use('/api/goals', goalRoutes);
 app.use('/api/analytics', analyticsRoutes);
 
