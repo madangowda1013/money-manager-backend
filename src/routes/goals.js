@@ -18,6 +18,18 @@ async function ensureGoalsTable() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS goal_progress (
+      id SERIAL PRIMARY KEY,
+      goal_id INTEGER REFERENCES goals(id) ON DELETE CASCADE,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      amount NUMERIC(12, 2) NOT NULL CHECK (amount > 0),
+      progress_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      note TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
 }
 
 function normalizeGoalBody(body) {
@@ -35,18 +47,69 @@ router.get('/', auth, async (req, res) => {
     await ensureGoalsTable();
 
     const result = await pool.query(
-      `SELECT id, title, target_amount::float AS target_amount, current_amount::float AS current_amount,
-              deadline, status, created_at, updated_at
+      `SELECT id, title AS name, target_amount::float AS target, current_amount::float AS current,
+              deadline AS "targetDate", status, created_at, updated_at
        FROM goals
        WHERE user_id = $1
        ORDER BY created_at DESC`,
       [req.user.id]
     );
 
-    res.json(result.rows);
+    const progressResult = await pool.query(
+      `SELECT id, goal_id, amount::float AS amount, progress_date AS date, note, created_at
+       FROM goal_progress
+       WHERE user_id = $1
+       ORDER BY progress_date DESC, created_at DESC`,
+      [req.user.id]
+    );
+
+    const progressByGoal = progressResult.rows.reduce((acc, progress) => {
+      acc[progress.goal_id] = acc[progress.goal_id] || [];
+      acc[progress.goal_id].push(progress);
+      return acc;
+    }, {});
+
+    res.json(result.rows.map((goal) => ({
+      ...goal,
+      progress: progressByGoal[goal.id] || []
+    })));
   } catch (error) {
     console.error('Get goals error:', error);
     res.status(500).json({ message: 'Unable to load goals' });
+  }
+});
+
+router.get('/:id', auth, async (req, res) => {
+  try {
+    await ensureGoalsTable();
+
+    const result = await pool.query(
+      `SELECT id, title AS name, target_amount::float AS target, current_amount::float AS current,
+              deadline AS "targetDate", status, created_at, updated_at
+       FROM goals
+       WHERE id = $1 AND user_id = $2`,
+      [req.params.id, req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Goal not found' });
+    }
+
+    const progressResult = await pool.query(
+      `SELECT id, goal_id, amount::float AS amount, progress_date AS date, note, created_at
+       FROM goal_progress
+       WHERE goal_id = $1 AND user_id = $2
+       ORDER BY progress_date DESC, created_at DESC`,
+      [req.params.id, req.user.id]
+    );
+
+    res.json({
+      ...result.rows[0],
+      progress: progressResult.rows
+    });
+  } catch (error) {
+    console.error('Get goal error:', error);
+    res.status(500).json({ message: 'Unable to load goal' });
   }
 });
 
@@ -71,8 +134,8 @@ router.post('/', auth, async (req, res) => {
     const result = await pool.query(
       `INSERT INTO goals (user_id, title, target_amount, current_amount, deadline, status)
        VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, title, target_amount::float AS target_amount, current_amount::float AS current_amount,
-                 deadline, status, created_at, updated_at`,
+       RETURNING id, title AS name, target_amount::float AS target, current_amount::float AS current,
+                 deadline AS "targetDate", status, created_at, updated_at`,
       [req.user.id, title.trim(), targetAmount, currentAmount, deadline, status]
     );
 
@@ -105,8 +168,8 @@ router.put('/:id', auth, async (req, res) => {
       `UPDATE goals
        SET title = $1, target_amount = $2, current_amount = $3, deadline = $4, status = $5, updated_at = NOW()
        WHERE id = $6 AND user_id = $7
-       RETURNING id, title, target_amount::float AS target_amount, current_amount::float AS current_amount,
-                 deadline, status, created_at, updated_at`,
+       RETURNING id, title AS name, target_amount::float AS target, current_amount::float AS current,
+                 deadline AS "targetDate", status, created_at, updated_at`,
       [title.trim(), targetAmount, currentAmount, deadline, status, req.params.id, req.user.id]
     );
 
@@ -141,8 +204,8 @@ router.patch('/:id', auth, async (req, res) => {
       `UPDATE goals
        SET title = $1, target_amount = $2, current_amount = $3, deadline = $4, status = $5, updated_at = NOW()
        WHERE id = $6 AND user_id = $7
-       RETURNING id, title, target_amount::float AS target_amount, current_amount::float AS current_amount,
-                 deadline, status, created_at, updated_at`,
+       RETURNING id, title AS name, target_amount::float AS target, current_amount::float AS current,
+                 deadline AS "targetDate", status, created_at, updated_at`,
       [title.trim(), targetAmount, currentAmount, deadline, status, req.params.id, req.user.id]
     );
 
@@ -150,6 +213,46 @@ router.patch('/:id', auth, async (req, res) => {
   } catch (error) {
     console.error('Patch goal error:', error);
     res.status(500).json({ message: 'Unable to update goal' });
+  }
+});
+
+router.post('/:id/progress', auth, async (req, res) => {
+  const amount = Number(req.body.amount);
+  const date = req.body.date || req.body.progress_date || new Date().toISOString().slice(0, 10);
+  const note = req.body.note || null;
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return res.status(400).json({ message: 'amount must be a positive number' });
+  }
+
+  try {
+    await ensureGoalsTable();
+
+    const goal = await pool.query(
+      'SELECT id FROM goals WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.user.id]
+    );
+
+    if (goal.rows.length === 0) {
+      return res.status(404).json({ message: 'Goal not found' });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO goal_progress (goal_id, user_id, amount, progress_date, note)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, goal_id, amount::float AS amount, progress_date AS date, note, created_at`,
+      [req.params.id, req.user.id, amount, date, note]
+    );
+
+    await pool.query(
+      'UPDATE goals SET current_amount = current_amount + $1, updated_at = NOW() WHERE id = $2 AND user_id = $3',
+      [amount, req.params.id, req.user.id]
+    );
+
+    res.status(201).json({ message: 'Progress saved', progress: result.rows[0] });
+  } catch (error) {
+    console.error('Create goal progress error:', error);
+    res.status(500).json({ message: 'Unable to save goal progress' });
   }
 });
 
