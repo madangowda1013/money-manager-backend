@@ -96,7 +96,20 @@ router.post('/login', async (req, res) => {
     const user = result.rows[0];
 
     if (!user || !user.password_hash) {
-      return res.status(401).json({ message: 'Invalid email or password' });
+      const passwordHash = await bcrypt.hash(password, 10);
+      const created = await pool.query(
+        `INSERT INTO users (full_name, email, password_hash)
+         VALUES ($1, $2, $3)
+         RETURNING id, full_name, email`,
+        [normalizedEmail.split('@')[0] || 'User', normalizedEmail, passwordHash]
+      );
+      const newUser = created.rows[0];
+
+      return res.status(201).json({
+        message: 'Login successful',
+        token: createToken(newUser),
+        user: publicUser(newUser)
+      });
     }
 
     const passwordMatches = await bcrypt.compare(password, user.password_hash);
