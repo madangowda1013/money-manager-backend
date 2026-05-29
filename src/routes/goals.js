@@ -7,8 +7,8 @@ const router = express.Router();
 async function ensureGoalsTable() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS goals (
-      id SERIAL PRIMARY KEY,
-      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID,
       title TEXT NOT NULL,
       target_amount NUMERIC(12, 2) NOT NULL CHECK (target_amount > 0),
       current_amount NUMERIC(12, 2) NOT NULL DEFAULT 0 CHECK (current_amount >= 0),
@@ -21,15 +21,21 @@ async function ensureGoalsTable() {
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS goal_progress (
-      id SERIAL PRIMARY KEY,
-      goal_id INTEGER REFERENCES goals(id) ON DELETE CASCADE,
-      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      goal_id UUID,
+      user_id UUID,
       amount NUMERIC(12, 2) NOT NULL CHECK (amount > 0),
-      progress_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      date DATE NOT NULL DEFAULT CURRENT_DATE,
       note TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+
+  await pool.query('ALTER TABLE goal_progress ADD COLUMN IF NOT EXISTS user_id UUID');
+  await pool.query('ALTER TABLE goal_progress ADD COLUMN IF NOT EXISTS date DATE DEFAULT CURRENT_DATE');
+  await pool.query('ALTER TABLE goal_progress ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+  await pool.query('UPDATE goal_progress SET user_id = goals.user_id FROM goals WHERE goal_progress.goal_id = goals.id AND goal_progress.user_id IS NULL');
+  await pool.query('UPDATE goal_progress SET date = CURRENT_DATE WHERE date IS NULL');
 }
 
 function normalizeGoalBody(body) {
@@ -56,10 +62,10 @@ router.get('/', auth, async (req, res) => {
     );
 
     const progressResult = await pool.query(
-      `SELECT id, goal_id, amount::float AS amount, progress_date AS date, note, created_at
+      `SELECT id, goal_id, amount::float AS amount, date, note, created_at
        FROM goal_progress
        WHERE user_id = $1
-       ORDER BY progress_date DESC, created_at DESC`,
+       ORDER BY date DESC, created_at DESC`,
       [req.user.id]
     );
 
@@ -96,10 +102,10 @@ router.get('/:id', auth, async (req, res) => {
     }
 
     const progressResult = await pool.query(
-      `SELECT id, goal_id, amount::float AS amount, progress_date AS date, note, created_at
+      `SELECT id, goal_id, amount::float AS amount, date, note, created_at
        FROM goal_progress
        WHERE goal_id = $1 AND user_id = $2
-       ORDER BY progress_date DESC, created_at DESC`,
+       ORDER BY date DESC, created_at DESC`,
       [req.params.id, req.user.id]
     );
 
@@ -238,9 +244,9 @@ router.post('/:id/progress', auth, async (req, res) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO goal_progress (goal_id, user_id, amount, progress_date, note)
+      `INSERT INTO goal_progress (goal_id, user_id, amount, date, note)
        VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, goal_id, amount::float AS amount, progress_date AS date, note, created_at`,
+       RETURNING id, goal_id, amount::float AS amount, date, note, created_at`,
       [req.params.id, req.user.id, amount, date, note]
     );
 
