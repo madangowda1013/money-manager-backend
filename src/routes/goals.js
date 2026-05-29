@@ -48,6 +48,63 @@ function normalizeGoalBody(body) {
   };
 }
 
+function normalizeDateInput(dateInput) {
+  if (!dateInput) {
+    return null;
+  }
+
+  if (typeof dateInput !== 'string') {
+    return null;
+  }
+
+  const isoMatch = dateInput.match(/^\d{4}-\d{2}-\d{2}$/);
+  if (isoMatch) {
+    return dateInput;
+  }
+
+  const dmyMatch = dateInput.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+  if (dmyMatch) {
+    const [, day, month, year] = dmyMatch;
+    return `${year}-${month}-${day}`;
+  }
+
+  const parsed = new Date(dateInput);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 10);
+  }
+
+  return null;
+}
+
+function mapGoalRow(goal) {
+  return {
+    id: goal.id,
+    title: goal.name,
+    name: goal.name,
+    targetAmount: goal.target,
+    target: goal.target,
+    currentAmount: goal.current,
+    current: goal.current,
+    deadline: goal.targetDate,
+    targetDate: goal.targetDate,
+    status: goal.status,
+    createdAt: goal.created_at || goal.createdAt,
+    updatedAt: goal.updated_at || goal.updatedAt,
+    progress: goal.progress || []
+  };
+}
+
+function mapProgressRow(progress) {
+  return {
+    id: progress.id,
+    goalId: progress.goal_id || progress.goalId,
+    amount: progress.amount,
+    date: progress.date,
+    note: progress.note,
+    createdAt: progress.created_at || progress.createdAt
+  };
+}
+
 router.get('/', auth, async (req, res) => {
   try {
     await ensureGoalsTable();
@@ -75,7 +132,7 @@ router.get('/', auth, async (req, res) => {
       return acc;
     }, {});
 
-    res.json(result.rows.map((goal) => ({
+    res.json(result.rows.map((goal) => mapGoalRow({
       ...goal,
       progress: progressByGoal[goal.id] || []
     })));
@@ -109,10 +166,10 @@ router.get('/:id', auth, async (req, res) => {
       [req.params.id, req.user.id]
     );
 
-    res.json({
+    res.json(mapGoalRow({
       ...result.rows[0],
-      progress: progressResult.rows
-    });
+      progress: progressResult.rows.map(mapProgressRow)
+    }));
   } catch (error) {
     console.error('Get goal error:', error);
     res.status(500).json({ message: 'Unable to load goal' });
@@ -145,7 +202,7 @@ router.post('/', auth, async (req, res) => {
       [req.user.id, title.trim(), targetAmount, currentAmount, deadline, status]
     );
 
-    res.status(201).json({ message: 'Goal saved', goal: result.rows[0] });
+    res.status(201).json({ message: 'Goal saved', goal: mapGoalRow(result.rows[0]) });
   } catch (error) {
     console.error('Create goal error:', error);
     res.status(500).json({ message: 'Unable to save goal' });
@@ -183,7 +240,7 @@ router.put('/:id', auth, async (req, res) => {
       return res.status(404).json({ message: 'Goal not found' });
     }
 
-    res.json({ message: 'Goal updated', goal: result.rows[0] });
+    res.json({ message: 'Goal updated', goal: mapGoalRow(result.rows[0]) });
   } catch (error) {
     console.error('Update goal error:', error);
     res.status(500).json({ message: 'Unable to update goal' });
@@ -215,7 +272,7 @@ router.patch('/:id', auth, async (req, res) => {
       [title.trim(), targetAmount, currentAmount, deadline, status, req.params.id, req.user.id]
     );
 
-    res.json({ message: 'Goal updated', goal: result.rows[0] });
+    res.json({ message: 'Goal updated', goal: mapGoalRow(result.rows[0]) });
   } catch (error) {
     console.error('Patch goal error:', error);
     res.status(500).json({ message: 'Unable to update goal' });
@@ -224,11 +281,16 @@ router.patch('/:id', auth, async (req, res) => {
 
 router.post('/:id/progress', auth, async (req, res) => {
   const amount = Number(req.body.amount);
-  const date = req.body.date || req.body.progress_date || new Date().toISOString().slice(0, 10);
+  const rawDate = req.body.date || req.body.progress_date || req.body.targetDate || req.body.date_saved;
+  const date = normalizeDateInput(rawDate) || new Date().toISOString().slice(0, 10);
   const note = req.body.note || null;
 
   if (!Number.isFinite(amount) || amount <= 0) {
     return res.status(400).json({ message: 'amount must be a positive number' });
+  }
+
+  if (!date) {
+    return res.status(400).json({ message: 'date is invalid' });
   }
 
   try {
@@ -255,7 +317,7 @@ router.post('/:id/progress', auth, async (req, res) => {
       [amount, req.params.id, req.user.id]
     );
 
-    res.status(201).json({ message: 'Progress saved', progress: result.rows[0] });
+    res.status(201).json({ message: 'Progress saved', progress: mapProgressRow(result.rows[0]) });
   } catch (error) {
     console.error('Create goal progress error:', error);
     res.status(500).json({ message: 'Unable to save goal progress' });
