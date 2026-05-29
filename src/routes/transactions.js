@@ -7,16 +7,19 @@ const router = express.Router();
 async function ensureTransactionsTable() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS transactions (
-      id SERIAL PRIMARY KEY,
-      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID,
       type TEXT NOT NULL CHECK (type IN ('income', 'expense')),
       amount NUMERIC(12, 2) NOT NULL CHECK (amount > 0),
       category TEXT NOT NULL,
       description TEXT,
-      transaction_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      date DATE NOT NULL DEFAULT CURRENT_DATE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+
+  await pool.query('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS date DATE DEFAULT CURRENT_DATE');
+  await pool.query('UPDATE transactions SET date = CURRENT_DATE WHERE date IS NULL');
 }
 
 router.get('/', auth, async (req, res) => {
@@ -24,10 +27,10 @@ router.get('/', auth, async (req, res) => {
     await ensureTransactionsTable();
 
     const result = await pool.query(
-      `SELECT id, type, amount::float AS amount, category, description, transaction_date AS date, created_at
+      `SELECT id, type, amount::float AS amount, category, description, date, created_at
        FROM transactions
        WHERE user_id = $1
-       ORDER BY transaction_date DESC, created_at DESC`,
+       ORDER BY date DESC, created_at DESC`,
       [req.user.id]
     );
 
@@ -43,10 +46,10 @@ router.get('/analytics', auth, async (req, res) => {
     await ensureTransactionsTable();
 
     const result = await pool.query(
-      `SELECT id, type, amount::float AS amount, category, description, transaction_date AS date, created_at
+      `SELECT id, type, amount::float AS amount, category, description, date, created_at
        FROM transactions
        WHERE user_id = $1
-       ORDER BY transaction_date DESC, created_at DESC`,
+       ORDER BY date DESC, created_at DESC`,
       [req.user.id]
     );
 
@@ -96,7 +99,7 @@ router.get('/:id', auth, async (req, res) => {
     await ensureTransactionsTable();
 
     const result = await pool.query(
-      `SELECT id, type, amount::float AS amount, category, description, transaction_date AS date, created_at
+      `SELECT id, type, amount::float AS amount, category, description, date, created_at
        FROM transactions
        WHERE id = $1 AND user_id = $2`,
       [req.params.id, req.user.id]
@@ -136,9 +139,9 @@ router.post('/', auth, async (req, res) => {
     await ensureTransactionsTable();
 
     const result = await pool.query(
-      `INSERT INTO transactions (user_id, type, amount, category, description, transaction_date)
+      `INSERT INTO transactions (user_id, type, amount, category, description, date)
        VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, type, amount::float AS amount, category, description, transaction_date AS date, created_at`,
+       RETURNING id, type, amount::float AS amount, category, description, date, created_at`,
       [req.user.id, type, amount, category, description, transactionDate]
     );
 
@@ -176,9 +179,9 @@ router.put('/:id', auth, async (req, res) => {
 
     const result = await pool.query(
       `UPDATE transactions
-       SET type = $1, amount = $2, category = $3, description = $4, transaction_date = $5
+       SET type = $1, amount = $2, category = $3, description = $4, date = $5
        WHERE id = $6 AND user_id = $7
-       RETURNING id, type, amount::float AS amount, category, description, transaction_date AS date, created_at`,
+       RETURNING id, type, amount::float AS amount, category, description, date, created_at`,
       [type, amount, category, description, transactionDate, req.params.id, req.user.id]
     );
 
