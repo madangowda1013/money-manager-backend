@@ -42,7 +42,12 @@ router.get('/', auth, async (req, res) => {
       [req.user.id]
     );
 
-    res.json(result.rows);
+    const budgetsByCategory = {};
+    result.rows.forEach((budget) => {
+      budgetsByCategory[budget.category] = budget.amount;
+    });
+
+    res.json(budgetsByCategory);
   } catch (error) {
     console.error('Get budgets error:', error);
     res.status(500).json({ message: 'Unable to load budgets' });
@@ -146,8 +151,10 @@ router.delete('/:id', auth, async (req, res) => {
     await ensureBudgetsTable();
 
     const result = await pool.query(
-      'DELETE FROM budgets WHERE id = $1 AND user_id = $2 RETURNING id',
-      [req.params.id, req.user.id]
+      `DELETE FROM budgets
+       WHERE user_id = $1 AND (id::text = $2 OR LOWER(category) = LOWER($2))
+       RETURNING id`,
+      [req.user.id, decodeURIComponent(req.params.id)]
     );
 
     if (result.rows.length === 0) {
