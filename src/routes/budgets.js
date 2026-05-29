@@ -7,17 +7,20 @@ const router = express.Router();
 async function ensureBudgetsTable() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS budgets (
-      id SERIAL PRIMARY KEY,
-      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID,
       category TEXT NOT NULL,
-      amount NUMERIC(12, 2) NOT NULL CHECK (amount > 0),
-      period TEXT NOT NULL DEFAULT 'monthly',
-      start_date DATE,
-      end_date DATE,
+      monthly_limit NUMERIC(12, 2) NOT NULL CHECK (monthly_limit > 0),
+      month DATE NOT NULL DEFAULT CURRENT_DATE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+
+  await pool.query('ALTER TABLE budgets ADD COLUMN IF NOT EXISTS monthly_limit NUMERIC(12, 2)');
+  await pool.query('ALTER TABLE budgets ADD COLUMN IF NOT EXISTS month DATE DEFAULT CURRENT_DATE');
+  await pool.query('ALTER TABLE budgets ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+  await pool.query('UPDATE budgets SET month = CURRENT_DATE WHERE month IS NULL');
 }
 
 function normalizeBudgetBody(body) {
@@ -35,7 +38,7 @@ router.get('/', auth, async (req, res) => {
     await ensureBudgetsTable();
 
     const result = await pool.query(
-      `SELECT id, category, amount::float AS amount, period, start_date, end_date, created_at, updated_at
+      `SELECT id, category, monthly_limit::float AS amount, month, created_at, updated_at
        FROM budgets
        WHERE user_id = $1
        ORDER BY created_at DESC`,
@@ -69,10 +72,10 @@ router.post('/', auth, async (req, res) => {
     await ensureBudgetsTable();
 
     const result = await pool.query(
-      `INSERT INTO budgets (user_id, category, amount, period, start_date, end_date)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, category, amount::float AS amount, period, start_date, end_date, created_at, updated_at`,
-      [req.user.id, category.trim(), amount, period, startDate, endDate]
+      `INSERT INTO budgets (user_id, category, monthly_limit, month)
+       VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE))
+       RETURNING id, category, monthly_limit::float AS amount, month, created_at, updated_at`,
+      [req.user.id, category.trim(), amount, startDate || endDate || null]
     );
 
     res.status(201).json({ message: 'Budget saved', budget: result.rows[0] });
@@ -98,10 +101,10 @@ router.put('/:id', auth, async (req, res) => {
 
     const result = await pool.query(
       `UPDATE budgets
-       SET category = $1, amount = $2, period = $3, start_date = $4, end_date = $5, updated_at = NOW()
-       WHERE id = $6 AND user_id = $7
-       RETURNING id, category, amount::float AS amount, period, start_date, end_date, created_at, updated_at`,
-      [category.trim(), amount, period, startDate, endDate, req.params.id, req.user.id]
+       SET category = $1, monthly_limit = $2, month = COALESCE($3::date, month), updated_at = NOW()
+       WHERE id = $4 AND user_id = $5
+       RETURNING id, category, monthly_limit::float AS amount, month, created_at, updated_at`,
+      [category.trim(), amount, startDate || endDate || null, req.params.id, req.user.id]
     );
 
     if (result.rows.length === 0) {
@@ -120,7 +123,7 @@ router.patch('/:id', auth, async (req, res) => {
     await ensureBudgetsTable();
 
     const existing = await pool.query(
-      'SELECT category, amount, period, start_date, end_date FROM budgets WHERE id = $1 AND user_id = $2',
+      'SELECT category, monthly_limit AS amount, month FROM budgets WHERE id = $1 AND user_id = $2',
       [req.params.id, req.user.id]
     );
 
@@ -133,10 +136,10 @@ router.patch('/:id', auth, async (req, res) => {
 
     const result = await pool.query(
       `UPDATE budgets
-       SET category = $1, amount = $2, period = $3, start_date = $4, end_date = $5, updated_at = NOW()
-       WHERE id = $6 AND user_id = $7
-       RETURNING id, category, amount::float AS amount, period, start_date, end_date, created_at, updated_at`,
-      [category.trim(), amount, period, startDate, endDate, req.params.id, req.user.id]
+       SET category = $1, monthly_limit = $2, month = COALESCE($3::date, month), updated_at = NOW()
+       WHERE id = $4 AND user_id = $5
+       RETURNING id, category, monthly_limit::float AS amount, month, created_at, updated_at`,
+      [category.trim(), amount, startDate || endDate || null, req.params.id, req.user.id]
     );
 
     res.json({ message: 'Budget updated', budget: result.rows[0] });
