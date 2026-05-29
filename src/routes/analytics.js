@@ -11,13 +11,13 @@ router.get('/', (req, res) => {
 async function ensureTransactionsTable() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS transactions (
-      id SERIAL PRIMARY KEY,
-      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID,
       type TEXT NOT NULL CHECK (type IN ('income', 'expense')),
       amount NUMERIC(12, 2) NOT NULL CHECK (amount > 0),
       category TEXT NOT NULL,
       description TEXT,
-      transaction_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      date DATE NOT NULL DEFAULT CURRENT_DATE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
@@ -78,12 +78,12 @@ async function monthlySummary(req, res) {
 
     const result = await pool.query(
       `SELECT
-         TO_CHAR(DATE_TRUNC('month', transaction_date), 'YYYY-MM') AS month,
+         TO_CHAR(DATE_TRUNC('month', date), 'YYYY-MM') AS month,
          COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0)::float AS income,
          COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0)::float AS expenses
        FROM transactions
        WHERE user_id = $1
-       GROUP BY DATE_TRUNC('month', transaction_date)
+       GROUP BY DATE_TRUNC('month', date)
        ORDER BY month`,
       [req.user.id]
     );
