@@ -24,17 +24,92 @@ router.get('/', auth, async (req, res) => {
     await ensureTransactionsTable();
 
     const result = await pool.query(
-      `SELECT id, type, amount, category, description, transaction_date, created_at
+      `SELECT id, type, amount::float AS amount, category, description, transaction_date AS date, created_at
        FROM transactions
        WHERE user_id = $1
        ORDER BY transaction_date DESC, created_at DESC`,
       [req.user.id]
     );
 
-    return res.json({ transactions: result.rows });
+    return res.json(result.rows);
   } catch (error) {
     console.error('Get transactions error:', error);
     return res.status(500).json({ message: 'Unable to load transactions' });
+  }
+});
+
+router.get('/analytics', auth, async (req, res) => {
+  try {
+    await ensureTransactionsTable();
+
+    const result = await pool.query(
+      `SELECT id, type, amount::float AS amount, category, description, transaction_date AS date, created_at
+       FROM transactions
+       WHERE user_id = $1
+       ORDER BY transaction_date DESC, created_at DESC`,
+      [req.user.id]
+    );
+
+    const expensesByCategory = {};
+    result.rows
+      .filter((transaction) => transaction.type === 'expense')
+      .forEach((transaction) => {
+        expensesByCategory[transaction.category] = (expensesByCategory[transaction.category] || 0) + Number(transaction.amount);
+      });
+
+    return res.json({
+      transactions: result.rows,
+      expensesByCategory
+    });
+  } catch (error) {
+    console.error('Transaction analytics error:', error);
+    return res.status(500).json({ message: 'Unable to load transaction analytics' });
+  }
+});
+
+router.get('/analytics/expenses-by-category', auth, async (req, res) => {
+  try {
+    await ensureTransactionsTable();
+
+    const result = await pool.query(
+      `SELECT category, SUM(amount)::float AS total
+       FROM transactions
+       WHERE user_id = $1 AND type = 'expense'
+       GROUP BY category`,
+      [req.user.id]
+    );
+
+    const expensesByCategory = {};
+    result.rows.forEach((row) => {
+      expensesByCategory[row.category] = Number(row.total);
+    });
+
+    return res.json(expensesByCategory);
+  } catch (error) {
+    console.error('Transaction expenses by category error:', error);
+    return res.status(500).json({ message: 'Unable to load expenses by category' });
+  }
+});
+
+router.get('/:id', auth, async (req, res) => {
+  try {
+    await ensureTransactionsTable();
+
+    const result = await pool.query(
+      `SELECT id, type, amount::float AS amount, category, description, transaction_date AS date, created_at
+       FROM transactions
+       WHERE id = $1 AND user_id = $2`,
+      [req.params.id, req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Transaction not found' });
+    }
+
+    return res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Get transaction error:', error);
+    return res.status(500).json({ message: 'Unable to load transaction' });
   }
 });
 
@@ -63,7 +138,7 @@ router.post('/', auth, async (req, res) => {
     const result = await pool.query(
       `INSERT INTO transactions (user_id, type, amount, category, description, transaction_date)
        VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, type, amount, category, description, transaction_date, created_at`,
+       RETURNING id, type, amount::float AS amount, category, description, transaction_date AS date, created_at`,
       [req.user.id, type, amount, category, description, transactionDate]
     );
 
@@ -103,7 +178,7 @@ router.put('/:id', auth, async (req, res) => {
       `UPDATE transactions
        SET type = $1, amount = $2, category = $3, description = $4, transaction_date = $5
        WHERE id = $6 AND user_id = $7
-       RETURNING id, type, amount, category, description, transaction_date, created_at`,
+       RETURNING id, type, amount::float AS amount, category, description, transaction_date AS date, created_at`,
       [type, amount, category, description, transactionDate, req.params.id, req.user.id]
     );
 
